@@ -1,0 +1,97 @@
+name: Publish X12 specs to Kong Konnect Catalog
+
+# Secrets needed in this repo (Settings > Secrets and variables > Actions):
+#   KONNECT_TOKEN      - Konnect Personal Access Token
+#   KONNECT_PORTAL_ID  - target Dev Portal ID
+#
+# For each markdown file in specs/, this workflow:
+#   1. Looks up an existing Catalog API by name (GET /v3/apis?filter[name][eq]=...)
+#   2. Creates it if missing (POST /v3/apis) - no OpenAPI spec/version, doc-only API
+#   3. Upserts the markdown as an API Document (POST or PATCH /v3/apis/{id}/documents)
+#   4. Publishes/ensures published to the portal (PUT /v3/apis/{id}/publications/{portalId})
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  publish-x12-specs:
+    runs-on: ubuntu-latest
+    env:
+      KONNECT_BASE_URL: https://us.api.konghq.com
+      KONNECT_PORTAL_ID: ${{ secrets.KONNECT_PORTAL_ID }}
+      KONNECT_TOKEN: ${{ secrets.KONNECT_TOKEN }}
+    strategy:
+      matrix:
+        include:
+          - file: specs/x12-850-purchase-order.md
+            api_name: "X12 850 - Purchase Order"
+            doc_slug: x12-850-purchase-order
+          - file: specs/x12-810-invoice.md
+            api_name: "X12 810 - Invoice"
+            doc_slug: x12-810-invoice
+          - file: specs/x12-856-advance-ship-notice.md
+            api_name: "X12 856 - Advance Ship Notice"
+            doc_slug: x12-856-advance-ship-notice
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Publish ${{ matrix.api_name }}
+        run: |
+          set -e
+          API_NAME="${{ matrix.api_name }}"
+          DOC_SLUG="${{ matrix.doc_slug }}"
+          FILE="${{ matrix.file }}"
+          CONTENT=$(cat "$FILE" | jq -Rs .)
+
+          echo "Looking up API named '$API_NAME'..."
+          EXISTING_API=$(curl -sS -G "$KONNECT_BASE_URL/v3/apis" \
+            -H "Authorization: Bearer $KONNECT_TOKEN" \
+            --data-urlencode "filter[name][eq]=$API_NAME")
+          API_ID=$(echo "$EXISTING_API" | jq -r '.data[0].id // empty')
+
+          if [ -z "$API_ID" ]; then
+            echo "No existing API found - creating it"
+            CREATED_API=$(curl -sS -X POST "$KONNECT_BASE_URL/v3/apis" \
+              -H "Authorization: Bearer $KONNECT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"name\": \"$API_NAME\"}")
+            API_ID=$(echo "$CREATED_API" | jq -r '.id')
+            echo "Created API id=$API_ID"
+          else
+            echo "Found existing API id=$API_ID"
+          fi
+
+          echo "Looking up existing document with slug=$DOC_SLUG..."
+          EXISTING_DOC=$(curl -sS -G "$KONNECT_BASE_URL/v3/apis/$API_ID/documents" \
+            -H "Authorization: Bearer $KONNECT_TOKEN" \
+            --data-urlencode "filter[slug][eq]=$DOC_SLUG")
+          DOC_ID=$(echo "$EXISTING_DOC" | jq -r '.data[0].id // empty')
+
+          if [ -n "$DOC_ID" ]; then
+            echo "Existing document found (id=$DOC_ID) - updating with PATCH"
+            curl -sS -X PATCH "$KONNECT_BASE_URL/v3/apis/$API_ID/documents/$DOC_ID" \
+              -H "Authorization: Bearer $KONNECT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"status\": \"published\",
+                \"content\": $CONTENT
+              }"
+          else
+            echo "No existing document found - creating with POST"
+            curl -sS -X POST "$KONNECT_BASE_URL/v3/apis/$API_ID/documents" \
+              -H "Authorization: Bearer $KONNECT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{
+                \"slug\": \"$DOC_SLUG\",
+                \"title\": \"$API_NAME\",
+                \"status\": \"published\",
+                \"content\": $CONTENT
+              }"
+          fi
+
+          echo "Publishing API to portal $KONNECT_PORTAL_ID..."
+          curl -sS -X PUT "$KONNECT_BASE_URL/v3/apis/$API_ID/publications/$KONNECT_PORTAL_ID" \
+            -H "Authorization: Bearer $KONNECT_TOKEN"
+
+          echo "Done: $API_NAME"
