@@ -7,8 +7,13 @@ name: Publish X12 specs to Kong Konnect Catalog
 # For each markdown file in specs/, this workflow:
 #   1. Looks up an existing Catalog API by name (GET /v3/apis?filter[name][eq]=...)
 #   2. Creates it if missing (POST /v3/apis) - no OpenAPI spec/version, doc-only API
-#   3. Upserts the markdown as an API Document (POST or PATCH /v3/apis/{id}/documents)
-#   4. Publishes/ensures published to the portal (PUT /v3/apis/{id}/publications/{portalId})
+#   3. Sets/updates the "category" attribute (PATCH /v3/apis/{id}) - drives Portal filtering
+#   4. Upserts the markdown as an API Document (POST or PATCH /v3/apis/{id}/documents)
+#   5. Publishes/ensures published to the portal (PUT /v3/apis/{id}/publications/{portalId})
+#
+# Category taxonomy (matches internal Expeditors standard spec categories):
+#   Accounting, Customs, Distribution, Transportation, ISF, Order Management,
+#   Delivery Management, Other
 
 on:
   workflow_dispatch: {}
@@ -26,12 +31,15 @@ jobs:
           - file: specs/x12-850-purchase-order.md
             api_name: "X12 850 - Purchase Order"
             doc_slug: x12-850-purchase-order
+            category: "Order Management"
           - file: specs/x12-810-invoice.md
             api_name: "X12 810 - Invoice"
             doc_slug: x12-810-invoice
+            category: "Accounting"
           - file: specs/x12-856-advance-ship-notice.md
             api_name: "X12 856 - Advance Ship Notice"
             doc_slug: x12-856-advance-ship-notice
+            category: "Distribution"
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -42,7 +50,9 @@ jobs:
           API_NAME="${{ matrix.api_name }}"
           DOC_SLUG="${{ matrix.doc_slug }}"
           FILE="${{ matrix.file }}"
+          CATEGORY="${{ matrix.category }}"
           CONTENT=$(cat "$FILE" | jq -Rs .)
+          ATTRS_JSON=$(jq -n --arg cat "$CATEGORY" '{category: [$cat]}')
 
           echo "Looking up API named '$API_NAME'..."
           EXISTING_API=$(curl -sS -G "$KONNECT_BASE_URL/v3/apis" \
@@ -51,15 +61,19 @@ jobs:
           API_ID=$(echo "$EXISTING_API" | jq -r '.data[0].id // empty')
 
           if [ -z "$API_ID" ]; then
-            echo "No existing API found - creating it"
+            echo "No existing API found - creating it with category=$CATEGORY"
             CREATED_API=$(curl -sS -X POST "$KONNECT_BASE_URL/v3/apis" \
               -H "Authorization: Bearer $KONNECT_TOKEN" \
               -H "Content-Type: application/json" \
-              -d "{\"name\": \"$API_NAME\"}")
+              -d "$(jq -n --arg name "$API_NAME" --argjson attrs "$ATTRS_JSON" '{name: $name, attributes: $attrs}')")
             API_ID=$(echo "$CREATED_API" | jq -r '.id')
             echo "Created API id=$API_ID"
           else
-            echo "Found existing API id=$API_ID"
+            echo "Found existing API id=$API_ID - updating category attribute"
+            curl -sS -X PATCH "$KONNECT_BASE_URL/v3/apis/$API_ID" \
+              -H "Authorization: Bearer $KONNECT_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "$(jq -n --argjson attrs "$ATTRS_JSON" '{attributes: $attrs}')"
           fi
 
           echo "Looking up existing document with slug=$DOC_SLUG..."
