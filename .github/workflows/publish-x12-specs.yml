@@ -16,7 +16,9 @@ name: Publish X12 specs to Kong Konnect Catalog
 # For each discovered file, this workflow:
 #   1. Looks up an existing Catalog API by name (GET /v3/apis?filter[name][eq]=...)
 #   2. Creates it if missing (POST /v3/apis) - no OpenAPI spec/version, doc-only API
-#   3. Sets/updates the "category" attribute (PATCH /v3/apis/{id}) - drives Portal filtering
+#   3. Sets/updates the "category" and "last_updated" attributes (PATCH /v3/apis/{id}) -
+#      category drives Portal filtering; last_updated (auto-derived from each file's last
+#      git commit date, YYYY-MM-DD) can be shown on the Portal card via card-attribute-keys
 #   4. Upserts the markdown (front matter stripped) as an API Document
 #   5. Publishes/ensures published to the portal (PUT /v3/apis/{id}/publications/{portalId})
 #
@@ -35,6 +37,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history needed to derive each file's last commit date
 
       - name: Build matrix from specs/*.md front matter
         id: build-matrix
@@ -45,20 +49,27 @@ jobs:
             [ -e "$f" ] || continue
             NAME=$(sed -n 's/^api_name:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$f" | head -n1)
             CATEGORY=$(sed -n 's/^category:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$f" | head -n1)
+            MODE=$(sed -n 's/^mode:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$f" | head -n1)
             SLUG=$(basename "$f" .md)
+
+            # Last commit date that touched this file (YYYY-MM-DD); falls back to today
+            # if the file is new/uncommitted in this checkout.
+            LAST_UPDATED=$(git log -1 --format=%cs -- "$f")
+            [ -z "$LAST_UPDATED" ] && LAST_UPDATED=$(date -u +%Y-%m-%d)
 
             if [ -z "$NAME" ]; then
               echo "::error file=$f::Missing api_name in front matter - skipping this file"
               continue
             fi
 
-            ENTRY=$(jq -n --arg file "$f" --arg api_name "$NAME" --arg category "$CATEGORY" --arg doc_slug "$SLUG" \
-              '{file: $file, api_name: $api_name, category: $category, doc_slug: $doc_slug}')
+            ENTRY=$(jq -n --arg file "$f" --arg api_name "$NAME" --arg category "$CATEGORY" \
+              --arg doc_slug "$SLUG" --arg last_updated "$LAST_UPDATED" --arg mode "$MODE" \
+              '{file: $file, api_name: $api_name, category: $category, doc_slug: $doc_slug, last_updated: $last_updated, mode: $mode}')
             ENTRIES=$(echo "$ENTRIES" | jq --argjson entry "$ENTRY" '. + [$entry]')
           done
 
           echo "Discovered specs:"
-          echo "$ENTRIES" | jq -r '.[] | "- \(.file) -> \(.api_name) [\(.category)]"'
+          echo "$ENTRIES" | jq -r '.[] | "- \(.file) -> \(.api_name) [\(.category)] (updated \(.last_updated))"'
 
           MATRIX=$(echo "$ENTRIES" | jq -c '{include: .}')
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
@@ -83,6 +94,8 @@ jobs:
           DOC_SLUG="${{ matrix.doc_slug }}"
           FILE="${{ matrix.file }}"
           CATEGORY="${{ matrix.category }}"
+          LAST_UPDATED="${{ matrix.last_updated }}"
+          MODE="${{ matrix.mode }}"
 
           # Strip the YAML front matter (first --- ... --- block) before publishing as Document content.
           # Patterns tolerate an optional trailing \r since specs/*.md may have CRLF line endings.
@@ -93,7 +106,16 @@ jobs:
             { print }
           ' "$FILE")
           CONTENT=$(printf '%s' "$CONTENT_RAW" | jq -Rs .)
-          ATTRS_JSON=$(jq -n --arg cat "$CATEGORY" '{category: [$cat]}')
+
+          # mode may be a comma-separated list (e.g. "Air, Truck") -> JSON array ["Air","Truck"].
+          # Specs without a mode field (non-Transportation) simply omit the attribute.
+          if [ -n "$MODE" ]; then
+            MODE_ARR=$(echo "$MODE" | jq -R -c 'split(",") | map(gsub("^\\s+|\\s+$";""))')
+            ATTRS_JSON=$(jq -n --arg cat "$CATEGORY" --arg upd "$LAST_UPDATED" --argjson mode "$MODE_ARR" \
+              '{category: [$cat], last_updated: [$upd], mode: $mode}')
+          else
+            ATTRS_JSON=$(jq -n --arg cat "$CATEGORY" --arg upd "$LAST_UPDATED" '{category: [$cat], last_updated: [$upd]}')
+          fi
 
           echo "Looking up API named '$API_NAME'..."
           EXISTING_API=$(curl -sS -G "$KONNECT_BASE_URL/v3/apis" \
@@ -102,7 +124,7 @@ jobs:
           API_ID=$(echo "$EXISTING_API" | jq -r '.data[0].id // empty')
 
           if [ -z "$API_ID" ]; then
-            echo "No existing API found - creating it with category=$CATEGORY"
+            echo "No existing API found - creating it with category=$CATEGORY, last_updated=$LAST_UPDATED"
             CREATED_API=$(curl -sS -X POST "$KONNECT_BASE_URL/v3/apis" \
               -H "Authorization: Bearer $KONNECT_TOKEN" \
               -H "Content-Type: application/json" \
@@ -110,7 +132,7 @@ jobs:
             API_ID=$(echo "$CREATED_API" | jq -r '.id')
             echo "Created API id=$API_ID"
           else
-            echo "Found existing API id=$API_ID - updating category attribute"
+            echo "Found existing API id=$API_ID - updating category/last_updated attributes"
             curl -sS -X PATCH "$KONNECT_BASE_URL/v3/apis/$API_ID" \
               -H "Authorization: Bearer $KONNECT_TOKEN" \
               -H "Content-Type: application/json" \

@@ -1,6 +1,7 @@
 ---
 api_name: "X12 990 - Response to a Load Tender (Air/Truck)"
 category: "Transportation"
+mode: "Air, Truck"
 ---
 
 # ANSI X12 990 - Response to a Load Tender (Air/Truck)
