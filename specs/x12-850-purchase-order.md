@@ -1,3 +1,8 @@
+---
+api_name: "X12 850 - Purchase Order"
+category: "Order Management"
+---
+
 # ANSI X12 850 - Purchase Order
 
 ## What it is
@@ -59,5 +64,4 @@ IEA*1*000000001~
 
 This structure maps naturally onto a JSON `PurchaseOrder` payload: `BEG` -> order header fields,
 `N1` loop -> a `businessEntity` array (buyer/vendor/ship-to), `PO1`/`PID` loop -> an `itemDetail`
-array, `CTT` -> a derived count rather than a transmitted field. That mapping is exactly what the
-companion OpenAPI spec in this repo expresses as a callable API.
+array, `CTT` -> a derived count rather than a transmitted field.

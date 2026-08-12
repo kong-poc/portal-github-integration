@@ -1,3 +1,8 @@
+---
+api_name: "X12 856 - Advance Ship Notice"
+category: "Distribution"
+---
+
 # ANSI X12 856 - Advance Ship Notice (ASN)
 
 ## What it is

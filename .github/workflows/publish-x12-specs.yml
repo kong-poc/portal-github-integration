@@ -4,11 +4,20 @@ name: Publish X12 specs to Kong Konnect Catalog
 #   KONNECT_TOKEN      - Konnect Personal Access Token
 #   KONNECT_PORTAL_ID  - target Dev Portal ID
 #
-# For each markdown file in specs/, this workflow:
+# Auto-discovers every specs/*.md file - no workflow edits needed to add a new spec.
+# Each file must start with YAML front matter, e.g.:
+#   ---
+#   api_name: "X12 850 - Purchase Order"
+#   category: "Order Management"
+#   ---
+# The API name and category come from front matter; the Document slug is derived from the
+# filename (e.g. specs/x12-850-purchase-order.md -> slug x12-850-purchase-order).
+#
+# For each discovered file, this workflow:
 #   1. Looks up an existing Catalog API by name (GET /v3/apis?filter[name][eq]=...)
 #   2. Creates it if missing (POST /v3/apis) - no OpenAPI spec/version, doc-only API
 #   3. Sets/updates the "category" attribute (PATCH /v3/apis/{id}) - drives Portal filtering
-#   4. Upserts the markdown as an API Document (POST or PATCH /v3/apis/{id}/documents)
+#   4. Upserts the markdown (front matter stripped) as an API Document
 #   5. Publishes/ensures published to the portal (PUT /v3/apis/{id}/publications/{portalId})
 #
 # Category taxonomy (matches internal Expeditors standard spec categories):
@@ -19,27 +28,50 @@ on:
   workflow_dispatch: {}
 
 jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.build-matrix.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build matrix from specs/*.md front matter
+        id: build-matrix
+        run: |
+          set -e
+          ENTRIES="[]"
+          for f in specs/*.md; do
+            [ -e "$f" ] || continue
+            NAME=$(sed -n 's/^api_name:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$f" | head -n1)
+            CATEGORY=$(sed -n 's/^category:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$f" | head -n1)
+            SLUG=$(basename "$f" .md)
+
+            if [ -z "$NAME" ]; then
+              echo "::error file=$f::Missing api_name in front matter - skipping this file"
+              continue
+            fi
+
+            ENTRY=$(jq -n --arg file "$f" --arg api_name "$NAME" --arg category "$CATEGORY" --arg doc_slug "$SLUG" \
+              '{file: $file, api_name: $api_name, category: $category, doc_slug: $doc_slug}')
+            ENTRIES=$(echo "$ENTRIES" | jq --argjson entry "$ENTRY" '. + [$entry]')
+          done
+
+          echo "Discovered specs:"
+          echo "$ENTRIES" | jq -r '.[] | "- \(.file) -> \(.api_name) [\(.category)]"'
+
+          MATRIX=$(echo "$ENTRIES" | jq -c '{include: .}')
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+
   publish-x12-specs:
+    needs: discover
     runs-on: ubuntu-latest
     env:
       KONNECT_BASE_URL: https://us.api.konghq.com
       KONNECT_PORTAL_ID: ${{ secrets.KONNECT_PORTAL_ID }}
       KONNECT_TOKEN: ${{ secrets.KONNECT_TOKEN }}
     strategy:
-      matrix:
-        include:
-          - file: specs/x12-850-purchase-order.md
-            api_name: "X12 850 - Purchase Order"
-            doc_slug: x12-850-purchase-order
-            category: "Order Management"
-          - file: specs/x12-810-invoice.md
-            api_name: "X12 810 - Invoice"
-            doc_slug: x12-810-invoice
-            category: "Accounting"
-          - file: specs/x12-856-advance-ship-notice.md
-            api_name: "X12 856 - Advance Ship Notice"
-            doc_slug: x12-856-advance-ship-notice
-            category: "Distribution"
+      matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -51,7 +83,16 @@ jobs:
           DOC_SLUG="${{ matrix.doc_slug }}"
           FILE="${{ matrix.file }}"
           CATEGORY="${{ matrix.category }}"
-          CONTENT=$(cat "$FILE" | jq -Rs .)
+
+          # Strip the YAML front matter (first --- ... --- block) before publishing as Document content.
+          # Patterns tolerate an optional trailing \r since specs/*.md may have CRLF line endings.
+          CONTENT_RAW=$(awk '
+            NR==1 && /^---\r?$/ { infm=1; next }
+            infm && /^---\r?$/ { infm=0; next }
+            infm { next }
+            { print }
+          ' "$FILE")
+          CONTENT=$(printf '%s' "$CONTENT_RAW" | jq -Rs .)
           ATTRS_JSON=$(jq -n --arg cat "$CATEGORY" '{category: [$cat]}')
 
           echo "Looking up API named '$API_NAME'..."

@@ -1,3 +1,8 @@
+---
+api_name: "X12 810 - Invoice"
+category: "Accounting"
+---
+
 # ANSI X12 810 - Invoice
 
 ## What it is
