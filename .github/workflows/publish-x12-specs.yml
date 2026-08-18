@@ -19,26 +19,54 @@ name: Publish X12 specs to Kong Konnect Catalog
 #   3. Sets/updates the "category" and "last_updated" attributes (PATCH /v3/apis/{id}) -
 #      category drives Portal filtering; last_updated (auto-derived from each file's last
 #      git commit date, YYYY-MM-DD) can be shown on the Portal card via card-attribute-keys
-#   4. Upserts the markdown (front matter stripped) as an API Document
+#   4. Upserts the markdown (front matter stripped) as an API Document, plus a "## Downloads"
+#      section (raw .md link, raw .txt illustrative-sample link, .zip bundle link) - ONLY when
+#      the repo is currently public (see the is-public check in the discover job). Files served
+#      via raw.githubusercontent.com / GitHub Releases 404 for anonymous visitors on a private
+#      repo, so the section is omitted entirely rather than shipping dead links.
 #   5. Publishes/ensures published to the portal (PUT /v3/apis/{id}/publications/{portalId})
 #
 # Category taxonomy (matches internal Expeditors standard spec categories):
 #   Accounting, Customs, Distribution, Transportation, ISF, Order Management,
 #   Delivery Management, Other
+#
+# Option A downloads (public-only): the build-downloads job extracts each spec's illustrative
+# EDI example into specs/samples/<slug>-sample.txt (committed back to main), zips it with the
+# source .md into dist/<slug>.zip, and uploads all zips to one persistent Release
+# (tag: specs-downloads, recreated/updated every run).
 
 on:
   workflow_dispatch: {}
+  public: {} # Auto-runs the moment this repo is flipped from private to public (GitHub-native
+             # event). There is no symmetric "made private" event, so reverting to private still
+             # requires a manual "Run workflow" click to regenerate Documents without the
+             # Downloads section.
 
 jobs:
   discover:
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.build-matrix.outputs.matrix }}
+      is-public: ${{ steps.check-visibility.outputs.is-public }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # full history needed to derive each file's last commit date
+
+      - name: Check repository visibility
+        id: check-visibility
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          VISIBILITY=$(gh repo view "${{ github.repository }}" --json visibility -q .visibility)
+          echo "Repository visibility: $VISIBILITY"
+          if [ "$VISIBILITY" = "PUBLIC" ]; then
+            echo "is-public=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is-public=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Build matrix from specs/*.md front matter
         id: build-matrix
@@ -74,13 +102,77 @@ jobs:
           MATRIX=$(echo "$ENTRIES" | jq -c '{include: .}')
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
 
-  publish-x12-specs:
+  build-downloads:
     needs: discover
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract illustrative samples + build per-spec zip bundles
+        run: |
+          set -e
+          mkdir -p specs/samples dist
+          for f in specs/*.md; do
+            [ -e "$f" ] || continue
+            SLUG=$(basename "$f" .md)
+            SAMPLE="specs/samples/${SLUG}-sample.txt"
+
+            # Pull the fenced code block under "## Illustrative example" into its own .txt file.
+            # \r? tolerance matches the same CRLF gotcha handled by the front-matter stripper.
+            awk '
+              BEGIN { insection=0; incode=0 }
+              /^## Illustrative example/ { insection=1; next }
+              insection && /^```\r?$/ {
+                if (incode) { exit }
+                incode=1; next
+              }
+              incode { print }
+            ' "$f" | sed 's/\r$//' > "$SAMPLE"
+
+            if [ ! -s "$SAMPLE" ]; then
+              echo "::warning file=$f::No illustrative example block found - skipping sample/zip"
+              rm -f "$SAMPLE"
+              continue
+            fi
+
+            zip -j "dist/${SLUG}.zip" "$f" "$SAMPLE"
+          done
+
+      - name: Commit generated sample files
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add specs/samples
+          git diff --cached --quiet || git commit -m "chore: auto-generate illustrative sample .txt files [skip ci]"
+          git push
+
+      - name: Create or update the shared downloads release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          if ! gh release view specs-downloads --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release create specs-downloads --repo "${{ github.repository }}" \
+              --title "X12 Spec Downloads (auto-generated)" \
+              --notes "Per-spec .md + .txt bundles, rebuilt by CI. Do not edit assets manually."
+          fi
+          for z in dist/*.zip; do
+            [ -e "$z" ] || continue
+            gh release upload specs-downloads "$z" --repo "${{ github.repository }}" --clobber
+          done
+
+  publish-x12-specs:
+    needs: [discover, build-downloads]
     runs-on: ubuntu-latest
     env:
       KONNECT_BASE_URL: https://us.api.konghq.com
       KONNECT_PORTAL_ID: ${{ secrets.KONNECT_PORTAL_ID }}
       KONNECT_TOKEN: ${{ secrets.KONNECT_TOKEN }}
+      IS_PUBLIC: ${{ needs.discover.outputs.is-public }}
     strategy:
       matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
     steps:
@@ -105,6 +197,20 @@ jobs:
             infm { next }
             { print }
           ' "$FILE")
+
+          # Only append a Downloads section while the repo is public - raw.githubusercontent.com
+          # and Release asset links 404 for anonymous visitors on a private repo, so we omit the
+          # section entirely rather than ship dead links (see is-public check in discover job).
+          if [ "$IS_PUBLIC" = "true" ]; then
+            RAW_BASE="https://raw.githubusercontent.com/${{ github.repository }}/main"
+            DOWNLOADS_MD=$(printf '\n## Downloads\n\n- [Download spec (.md)](%s/%s)\n- [Download illustrative sample (.txt)](%s/specs/samples/%s-sample.txt)\n- [Download all files (.zip)](https://github.com/%s/releases/download/specs-downloads/%s.zip)\n' \
+              "$RAW_BASE" "$FILE" "$RAW_BASE" "$DOC_SLUG" "${{ github.repository }}" "$DOC_SLUG")
+            CONTENT_RAW="${CONTENT_RAW}${DOWNLOADS_MD}"
+            echo "Repo is public - Downloads section added"
+          else
+            echo "Repo is private - skipping Downloads section (links would 404 for portal visitors)"
+          fi
+
           CONTENT=$(printf '%s' "$CONTENT_RAW" | jq -Rs .)
 
           # mode may be a comma-separated list (e.g. "Air, Truck") -> JSON array ["Air","Truck"].
