@@ -5,6 +5,13 @@ category: "Order Management"
 
 # ANSI X12 850 - Purchase Order
 
+## Full document downloads
+
+- [Download PDF](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/files/x12-850-purchase-order.pdf)
+- [Download DOCX](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/files/x12-850-purchase-order.docx)
+- [Download Sample (.txt)](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/files/x12-850-purchase-order-sample.txt)
+- [View & download files with inline preview](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/)
+
 ## What it is
 
 The X12 850 is the standard EDI transaction set used to transmit a purchase order from a buyer
@@ -59,12 +66,6 @@ SE*9*0001~
 GE*1*1~
 IEA*1*000000001~
 ```
-
-## Full document downloads
-
-A downloadable PDF/DOCX version of this spec, with an inline preview, is available here:
-
-**[View & download files (PDF / DOCX)](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/)**
 
 ## Mapping to a modern REST equivalent
 
