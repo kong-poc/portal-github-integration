@@ -138,7 +138,16 @@ jobs:
               continue
             fi
 
-            zip -j "dist/${SLUG}.zip" "$f" "$SAMPLE"
+            # Optional manually-authored attachments (not auto-generated): drop a file at
+            # specs/attachments/<slug>.pdf and/or specs/attachments/<slug>.docx and it's picked
+            # up automatically - no workflow edit needed, same "just add a file" spirit as specs/.
+            ATTACH_ARGS=()
+            for ext in pdf docx; do
+              ATT="specs/attachments/${SLUG}.${ext}"
+              [ -f "$ATT" ] && ATTACH_ARGS+=("$ATT")
+            done
+
+            zip -j "dist/${SLUG}.zip" "$f" "$SAMPLE" "${ATTACH_ARGS[@]}"
           done
 
       - name: Commit generated sample files
@@ -158,8 +167,25 @@ jobs:
           if ! gh release view specs-downloads --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release create specs-downloads --repo "${{ github.repository }}" \
               --title "X12 Spec Downloads (auto-generated)" \
-              --notes "Per-spec .md + .txt bundles, rebuilt by CI. Do not edit assets manually."
+              --notes "Per-spec .md + .txt (+ optional .pdf/.docx) bundles, rebuilt by CI. Do not edit assets manually."
           fi
+          # Upload the individual .md, .txt sample, and any .pdf/.docx attachments too (not just
+          # the .zip) - GitHub Release assets always get Content-Disposition: attachment, forcing
+          # a real download even for text/PDF files. raw.githubusercontent.com (and Chrome's
+          # built-in PDF viewer) render these inline instead, which is why links to them open in
+          # a new tab rather than downloading.
+          for f in specs/*.md; do
+            [ -e "$f" ] || continue
+            gh release upload specs-downloads "$f" --repo "${{ github.repository }}" --clobber
+          done
+          for s in specs/samples/*.txt; do
+            [ -e "$s" ] || continue
+            gh release upload specs-downloads "$s" --repo "${{ github.repository }}" --clobber
+          done
+          for a in specs/attachments/*.pdf specs/attachments/*.docx; do
+            [ -e "$a" ] || continue
+            gh release upload specs-downloads "$a" --repo "${{ github.repository }}" --clobber
+          done
           for z in dist/*.zip; do
             [ -e "$z" ] || continue
             gh release upload specs-downloads "$z" --repo "${{ github.repository }}" --clobber
@@ -198,13 +224,21 @@ jobs:
             { print }
           ' "$FILE")
 
-          # Only append a Downloads section while the repo is public - raw.githubusercontent.com
-          # and Release asset links 404 for anonymous visitors on a private repo, so we omit the
-          # section entirely rather than ship dead links (see is-public check in discover job).
+          # Only append a Downloads section while the repo is public - Release asset links 404
+          # for anonymous visitors on a private repo, so we omit the section entirely rather
+          # than ship dead links (see is-public check in discover job).
           if [ "$IS_PUBLIC" = "true" ]; then
-            RAW_BASE="https://raw.githubusercontent.com/${{ github.repository }}/main"
-            DOWNLOADS_MD=$(printf '\n## Downloads\n\n- [Download spec (.md)](%s/%s)\n- [Download illustrative sample (.txt)](%s/specs/samples/%s-sample.txt)\n- [Download all files (.zip)](https://github.com/%s/releases/download/specs-downloads/%s.zip)\n' \
-              "$RAW_BASE" "$FILE" "$RAW_BASE" "$DOC_SLUG" "${{ github.repository }}" "$DOC_SLUG")
+            RELEASE_BASE="https://github.com/${{ github.repository }}/releases/download/specs-downloads"
+            DOWNLOADS_MD=$'\n## Downloads\n\n'
+            DOWNLOADS_MD+="- [Download spec (.md)](${RELEASE_BASE}/$(basename "$FILE"))"$'\n'
+            DOWNLOADS_MD+="- [Download illustrative sample (.txt)](${RELEASE_BASE}/${DOC_SLUG}-sample.txt)"$'\n'
+            if [ -f "specs/attachments/${DOC_SLUG}.pdf" ]; then
+              DOWNLOADS_MD+="- [Download spec (.pdf)](${RELEASE_BASE}/${DOC_SLUG}.pdf)"$'\n'
+            fi
+            if [ -f "specs/attachments/${DOC_SLUG}.docx" ]; then
+              DOWNLOADS_MD+="- [Download configuration worksheet (.docx)](${RELEASE_BASE}/${DOC_SLUG}.docx)"$'\n'
+            fi
+            DOWNLOADS_MD+="- [Download all files (.zip)](${RELEASE_BASE}/${DOC_SLUG}.zip)"$'\n'
             CONTENT_RAW="${CONTENT_RAW}${DOWNLOADS_MD}"
             echo "Repo is public - Downloads section added"
           else
