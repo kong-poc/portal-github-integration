@@ -7,9 +7,9 @@ category: "Order Management"
 
 ## Full document downloads
 
-- [Download PDF](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/files/x12-850-purchase-order.pdf)
+- [Download PDF](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/) (opens the downloads page)
 - [Download DOCX](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/files/x12-850-purchase-order.docx)
-- [Download Sample (.txt)](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/files/x12-850-purchase-order-sample.txt)
+- [Download Sample (.txt)](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/) (opens the downloads page)
 - [View & download files with inline preview](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/)
 
 ## What it is

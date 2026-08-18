@@ -20,9 +20,9 @@
   <h1>X12 850 &mdash; Purchase Order</h1>
 
   <div class="downloads">
-    <a href="files/x12-850-purchase-order.pdf" download>Download PDF</a>
+    <a href="files/x12-850-purchase-order.pdf" onclick="return forceDownload(event, 'files/x12-850-purchase-order.pdf', 'x12-850-purchase-order.pdf')">Download PDF</a>
     <a href="files/x12-850-purchase-order.docx" download>Download DOCX</a>
-    <a href="files/x12-850-purchase-order-sample.txt" download>Download Sample (.txt)</a>
+    <a href="files/x12-850-purchase-order-sample.txt" onclick="return forceDownload(event, 'files/x12-850-purchase-order-sample.txt', 'x12-850-purchase-order-sample.txt')">Download Sample (.txt)</a>
   </div>
 
   <p>Downloadable files and inline preview for this spec (test page &mdash; served via GitHub Pages).</p>
@@ -30,5 +30,27 @@
   <h2>Preview</h2>
   <iframe src="files/x12-850-purchase-order.pdf" title="X12 850 Purchase Order PDF preview"></iframe>
   <p class="note">If the preview doesn't render (some mobile browsers), use the Download PDF link above.</p>
+
+  <script>
+    // GitHub Pages serves files with no Content-Disposition header, so browsers that can render
+    // a file type natively (PDF, plain text) ignore the `download` attribute and open it inline
+    // instead. Fetching the bytes ourselves and saving via a blob URL forces a real download
+    // regardless of MIME type. DOCX is left as a plain `download` link since no browser renders
+    // it inline anyway.
+    async function forceDownload(evt, url, filename) {
+      evt.preventDefault();
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+      return false;
+    }
+  </script>
 </body>
 </html>
