@@ -227,7 +227,10 @@ jobs:
           # Only append a Downloads section while the repo is public - Release asset links 404
           # for anonymous visitors on a private repo, so we omit the section entirely rather
           # than ship dead links (see is-public check in discover job).
-          if [ "$IS_PUBLIC" = "true" ]; then
+          # x12-850 is the GitHub Pages test spec - it links to its own Pages site directly in
+          # the source .md instead, so the auto Release-based Downloads section is skipped here
+          # to keep the two approaches visually distinct on the Portal.
+          if [ "$IS_PUBLIC" = "true" ] && [ "$DOC_SLUG" != "x12-850-purchase-order" ]; then
             RELEASE_BASE="https://github.com/${{ github.repository }}/releases/download/specs-downloads"
             DOWNLOADS_MD=$'\n## Downloads\n\n'
             DOWNLOADS_MD+="- [Download spec (.md)](${RELEASE_BASE}/$(basename "$FILE"))"$'\n'
