@@ -60,6 +60,12 @@ GE*1*1~
 IEA*1*000000001~
 ```
 
+## Full document downloads
+
+A downloadable PDF/DOCX version of this spec, with an inline preview, is available here:
+
+**[View & download files (PDF / DOCX)](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/)**
+
 ## Mapping to a modern REST equivalent
 
 This structure maps naturally onto a JSON `PurchaseOrder` payload: `BEG` -> order header fields,
