@@ -6,14 +6,14 @@ hosting_test: "GitHub Pages"
 
 # ANSI X12 850 - Purchase Order
 
-> 🧪 **POC test: GitHub Pages hosting.** This spec's downloadable files (PDF, DOCX, illustrative
-> sample) and an inline PDF preview are served entirely via **GitHub Pages**, not GitHub Release
-> assets - proving Pages as a way to host binary attachments outside Kong Konnect, which cannot
-> host binary files itself.
+> 🧪 **POC test: GitHub Pages hosting.** This spec's downloadable file (PDF) is served directly
+> from **GitHub Pages**, not GitHub Release assets - proving Pages as a way to host binary
+> attachments outside Kong Konnect, which cannot host binary files itself. DOCX is intentionally
+> not offered for this spec (PDF-only, to avoid distributing an editable copy of the content).
 
 ## Downloads (GitHub Pages test)
 
-- [View & download files, with inline PDF preview (GitHub Pages)](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/)
+- [Download PDF (GitHub Pages)](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/files/x12-850-purchase-order.pdf)
 
 ## What it is
 
