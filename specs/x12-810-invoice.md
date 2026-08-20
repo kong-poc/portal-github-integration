@@ -1,9 +1,19 @@
 ---
 api_name: "X12 810 - Invoice"
 category: "Accounting"
+hosting_test: "External Storage (Google Drive)"
 ---
 
 # ANSI X12 810 - Invoice
+
+> 🧪 **POC test: External file storage.** This spec's downloadable file is hosted on a personal
+> **Google Drive** account, not GitHub - proving binary attachments can be served completely
+> outside GitHub/Kong Konnect, decoupled from this repo's public/private visibility. Placeholder
+> content only.
+
+## Downloads (External Storage test - Google Drive)
+
+- [Download PDF (placeholder, hosted on personal Google Drive)](https://drive.google.com/uc?export=download&id=1EzSD_7IsSMtqXJhm44mdYzC3aHn6z5o7)
 
 ## What it is
 

@@ -23,12 +23,25 @@ name: Publish X12 specs to Kong Konnect Catalog
 #      section (raw .md link, raw .txt illustrative-sample link, .zip bundle link) - ONLY when
 #      the repo is currently public (see the is-public check in the discover job). Files served
 #      via raw.githubusercontent.com / GitHub Releases 404 for anonymous visitors on a private
-#      repo, so the section is omitted entirely rather than shipping dead links.
+#      repo, so the section is omitted entirely rather than shipping dead links. This auto
+#      section is skipped for specs in CUSTOM_DOWNLOADS_SLUGS (see below) that hand-author their
+#      own Downloads section instead, to test an alternate file-hosting mechanism.
 #   5. Publishes/ensures published to the portal (PUT /v3/apis/{id}/publications/{portalId})
 #
 # Category taxonomy (matches internal Expeditors standard spec categories):
 #   Accounting, Customs, Distribution, Transportation, ISF, Order Management,
 #   Delivery Management, Other
+#
+# Optional front-matter attributes (both merged into the API's `attributes` only when present,
+# and both worth adding to the Portal Editor's card-attribute-keys to show on the card):
+#   mode          - Transportation specs only, comma-separated (e.g. "Air, Truck")
+#   hosting_test  - flags a spec as an alternate-file-hosting POC (e.g. "GitHub Pages",
+#                   "External Storage (Google Drive)"). Currently set on:
+#                     x12-850-purchase-order - GitHub Pages hosting test
+#                     x12-810-invoice        - External storage (personal Google Drive) test
+#                   These two specs are also excluded from the auto Release-based Downloads
+#                   section (see CUSTOM_DOWNLOADS_SLUGS in the publish step) since they carry
+#                   their own hand-authored Downloads section in the source .md instead.
 #
 # Option A downloads (public-only): the build-downloads job extracts each spec's illustrative
 # EDI example into specs/samples/<slug>-sample.txt (committed back to main), zips it with the
@@ -78,6 +91,7 @@ jobs:
             NAME=$(sed -n 's/^api_name:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$f" | head -n1)
             CATEGORY=$(sed -n 's/^category:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$f" | head -n1)
             MODE=$(sed -n 's/^mode:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$f" | head -n1)
+            HOSTING_TEST=$(sed -n 's/^hosting_test:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$f" | head -n1)
             SLUG=$(basename "$f" .md)
 
             # Last commit date that touched this file (YYYY-MM-DD); falls back to today
@@ -92,7 +106,8 @@ jobs:
 
             ENTRY=$(jq -n --arg file "$f" --arg api_name "$NAME" --arg category "$CATEGORY" \
               --arg doc_slug "$SLUG" --arg last_updated "$LAST_UPDATED" --arg mode "$MODE" \
-              '{file: $file, api_name: $api_name, category: $category, doc_slug: $doc_slug, last_updated: $last_updated, mode: $mode}')
+              --arg hosting_test "$HOSTING_TEST" \
+              '{file: $file, api_name: $api_name, category: $category, doc_slug: $doc_slug, last_updated: $last_updated, mode: $mode, hosting_test: $hosting_test}')
             ENTRIES=$(echo "$ENTRIES" | jq --argjson entry "$ENTRY" '. + [$entry]')
           done
 
@@ -214,6 +229,7 @@ jobs:
           CATEGORY="${{ matrix.category }}"
           LAST_UPDATED="${{ matrix.last_updated }}"
           MODE="${{ matrix.mode }}"
+          HOSTING_TEST="${{ matrix.hosting_test }}"
 
           # Strip the YAML front matter (first --- ... --- block) before publishing as Document content.
           # Patterns tolerate an optional trailing \r since specs/*.md may have CRLF line endings.
@@ -227,10 +243,18 @@ jobs:
           # Only append a Downloads section while the repo is public - Release asset links 404
           # for anonymous visitors on a private repo, so we omit the section entirely rather
           # than ship dead links (see is-public check in discover job).
-          # x12-850 is the GitHub Pages test spec - it links to its own Pages site directly in
-          # the source .md instead, so the auto Release-based Downloads section is skipped here
-          # to keep the two approaches visually distinct on the Portal.
-          if [ "$IS_PUBLIC" = "true" ] && [ "$DOC_SLUG" != "x12-850-purchase-order" ]; then
+          # Some specs are alternate-hosting test cases with their own hand-authored Downloads
+          # section already in the source .md, so the auto Release-based section is skipped for
+          # them to keep each hosting approach visually distinct on the Portal:
+          #   x12-850-purchase-order - GitHub Pages hosting test
+          #   x12-810-invoice        - External storage (personal Google Drive) hosting test
+          CUSTOM_DOWNLOADS_SLUGS=("x12-850-purchase-order" "x12-810-invoice")
+          SKIP_AUTO_DOWNLOADS=false
+          for s in "${CUSTOM_DOWNLOADS_SLUGS[@]}"; do
+            [ "$DOC_SLUG" = "$s" ] && SKIP_AUTO_DOWNLOADS=true
+          done
+
+          if [ "$IS_PUBLIC" = "true" ] && [ "$SKIP_AUTO_DOWNLOADS" = "false" ]; then
             RELEASE_BASE="https://github.com/${{ github.repository }}/releases/download/specs-downloads"
             DOWNLOADS_MD=$'\n## Downloads\n\n'
             DOWNLOADS_MD+="- [Download spec (.md)](${RELEASE_BASE}/$(basename "$FILE"))"$'\n'
@@ -244,20 +268,28 @@ jobs:
             DOWNLOADS_MD+="- [Download all files (.zip)](${RELEASE_BASE}/${DOC_SLUG}.zip)"$'\n'
             CONTENT_RAW="${CONTENT_RAW}${DOWNLOADS_MD}"
             echo "Repo is public - Downloads section added"
+          elif [ "$SKIP_AUTO_DOWNLOADS" = "true" ]; then
+            echo "Skipping auto Downloads section - $DOC_SLUG carries its own hand-authored Downloads section"
           else
             echo "Repo is private - skipping Downloads section (links would 404 for portal visitors)"
           fi
 
           CONTENT=$(printf '%s' "$CONTENT_RAW" | jq -Rs .)
 
+          # Base attributes every spec gets; mode and hosting_test are optional add-ons merged in
+          # below only when present in the front matter, so specs without them are unaffected.
+          ATTRS_JSON=$(jq -n --arg cat "$CATEGORY" --arg upd "$LAST_UPDATED" '{category: [$cat], last_updated: [$upd]}')
+
           # mode may be a comma-separated list (e.g. "Air, Truck") -> JSON array ["Air","Truck"].
-          # Specs without a mode field (non-Transportation) simply omit the attribute.
           if [ -n "$MODE" ]; then
             MODE_ARR=$(echo "$MODE" | jq -R -c 'split(",") | map(gsub("^\\s+|\\s+$";""))')
-            ATTRS_JSON=$(jq -n --arg cat "$CATEGORY" --arg upd "$LAST_UPDATED" --argjson mode "$MODE_ARR" \
-              '{category: [$cat], last_updated: [$upd], mode: $mode}')
-          else
-            ATTRS_JSON=$(jq -n --arg cat "$CATEGORY" --arg upd "$LAST_UPDATED" '{category: [$cat], last_updated: [$upd]}')
+            ATTRS_JSON=$(echo "$ATTRS_JSON" | jq --argjson mode "$MODE_ARR" '. + {mode: $mode}')
+          fi
+
+          # hosting_test flags a spec as an alternate-file-hosting POC (e.g. "GitHub Pages",
+          # "External Storage (Google Drive)") - shown on the Portal card via card-attribute-keys.
+          if [ -n "$HOSTING_TEST" ]; then
+            ATTRS_JSON=$(echo "$ATTRS_JSON" | jq --arg ht "$HOSTING_TEST" '. + {hosting_test: [$ht]}')
           fi
 
           echo "Looking up API named '$API_NAME'..."

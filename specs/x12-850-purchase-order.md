@@ -1,16 +1,19 @@
 ---
 api_name: "X12 850 - Purchase Order"
 category: "Order Management"
+hosting_test: "GitHub Pages"
 ---
 
 # ANSI X12 850 - Purchase Order
 
-## Full document downloads
+> 🧪 **POC test: GitHub Pages hosting.** This spec's downloadable files (PDF, DOCX, illustrative
+> sample) and an inline PDF preview are served entirely via **GitHub Pages**, not GitHub Release
+> assets - proving Pages as a way to host binary attachments outside Kong Konnect, which cannot
+> host binary files itself.
 
-- [Download PDF](https://github.com/kong-poc/portal-github-integration/releases/download/specs-downloads/x12-850-purchase-order.pdf)
-- [Download DOCX](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/files/x12-850-purchase-order.docx)
-- [Download Sample (.txt)](https://github.com/kong-poc/portal-github-integration/releases/download/specs-downloads/x12-850-purchase-order-sample.txt)
-- [View & download files with inline preview](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/)
+## Downloads (GitHub Pages test)
+
+- [View & download files, with inline PDF preview (GitHub Pages)](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/)
 
 ## What it is
 
