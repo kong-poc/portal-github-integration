@@ -13,10 +13,11 @@ hosting_test: "GitHub Pages"
 
 ## Downloads (GitHub Pages test)
 
-- [Download PDF (GitHub Pages)](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/files/x12-850-purchase-order.pdf) -
+- [View Spec in PDF](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/files/x12-850-purchase-order.pdf) -
   opens inline in most browsers (PDFs are always previewed in-tab regardless of hosting source,
   including raw.githubusercontent.com - this is normal browser behavior, not a hosting issue).
-- [Download .zip (GitHub Pages, forces a real download)](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/files/x12-850-purchase-order.zip)
+- [Download .zip (Spec in PDF + sample .txt)](https://kong-poc.github.io/portal-github-integration/x12-850-purchase-order/files/x12-850-purchase-order.zip) -
+  GitHub Pages, forces a real one-click download since browsers can't preview `.zip` files.
 
 ## What it is
 
