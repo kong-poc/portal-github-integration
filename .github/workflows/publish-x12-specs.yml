@@ -54,6 +54,12 @@ on:
              # event). There is no symmetric "made private" event, so reverting to private still
              # requires a manual "Run workflow" click to regenerate Documents without the
              # Downloads section.
+  push:
+    branches: [main]
+    paths:
+      - 'specs/**' # Auto-publish on any spec content/attachment change - no manual "Run
+                   # workflow" click needed. Safe from self-triggering loops: the
+                   # build-downloads job's own commit back to main includes "[skip ci]".
 
 jobs:
   discover:
