@@ -46,7 +46,12 @@ name: Publish X12 specs to Kong Konnect Catalog
 # Option A downloads (public-only): the build-downloads job extracts each spec's illustrative
 # EDI example into specs/samples/<slug>-sample.txt (committed back to main), zips it with the
 # source .md into dist/<slug>.zip, and uploads all zips to one persistent Release
-# (tag: specs-downloads, recreated/updated every run).
+# (tag: specs-downloads, recreated/updated every run). For slugs in PAGES_ZIP_SLUGS (see the
+# build-downloads job), the same zip is also copied into docs/<slug>/files/<slug>.zip and
+# committed, so it can be linked directly from GitHub Pages - .zip files aren't renderable
+# in-browser, so a direct Pages link to one always triggers a real single-click download, unlike
+# a direct PDF link (which browsers preview inline regardless of hosting source, including
+# raw.githubusercontent.com).
 
 on:
   workflow_dispatch: {}
@@ -171,13 +176,30 @@ jobs:
             zip -j "dist/${SLUG}.zip" "$f" "$SAMPLE" "${ATTACH_ARGS[@]}"
           done
 
+      - name: Copy zip bundles into docs/ for specs using the GitHub Pages hosting test
+        run: |
+          set -e
+          # Slugs whose Downloads section links to a .zip served from GitHub Pages (docs/) in
+          # addition to (or instead of) the GitHub Release asset - keeps the .zip content in
+          # sync automatically instead of a manually-maintained duplicate file.
+          PAGES_ZIP_SLUGS=("x12-850-purchase-order")
+          for SLUG in "${PAGES_ZIP_SLUGS[@]}"; do
+            ZIP="dist/${SLUG}.zip"
+            if [ -f "$ZIP" ]; then
+              mkdir -p "docs/${SLUG}/files"
+              cp "$ZIP" "docs/${SLUG}/files/${SLUG}.zip"
+            else
+              echo "::warning::Expected $ZIP for Pages hosting test but it wasn't built - skipping copy"
+            fi
+          done
+
       - name: Commit generated sample files
         run: |
           set -e
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add specs/samples
-          git diff --cached --quiet || git commit -m "chore: auto-generate illustrative sample .txt files [skip ci]"
+          git add specs/samples docs
+          git diff --cached --quiet || git commit -m "chore: auto-generate illustrative sample .txt files and Pages zip bundles [skip ci]"
           git push
 
       - name: Create or update the shared downloads release
