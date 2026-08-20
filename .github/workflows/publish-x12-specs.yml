@@ -165,13 +165,13 @@ jobs:
             fi
 
             # Optional manually-authored attachments (not auto-generated): drop a file at
-            # specs/attachments/<slug>.pdf and/or specs/attachments/<slug>.docx and it's picked
-            # up automatically - no workflow edit needed, same "just add a file" spirit as specs/.
+            # specs/attachments/<slug>.pdf and it's picked up automatically - no workflow edit
+            # needed, same "just add a file" spirit as specs/. DOCX intentionally not supported -
+            # editable copies of spec content aren't offered to avoid customers/partners being
+            # able to alter and redistribute it.
             ATTACH_ARGS=()
-            for ext in pdf docx; do
-              ATT="specs/attachments/${SLUG}.${ext}"
-              [ -f "$ATT" ] && ATTACH_ARGS+=("$ATT")
-            done
+            ATT="specs/attachments/${SLUG}.pdf"
+            [ -f "$ATT" ] && ATTACH_ARGS+=("$ATT")
 
             zip -j "dist/${SLUG}.zip" "$f" "$SAMPLE" "${ATTACH_ARGS[@]}"
           done
@@ -210,9 +210,9 @@ jobs:
           if ! gh release view specs-downloads --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release create specs-downloads --repo "${{ github.repository }}" \
               --title "X12 Spec Downloads (auto-generated)" \
-              --notes "Per-spec .md + .txt (+ optional .pdf/.docx) bundles, rebuilt by CI. Do not edit assets manually."
+              --notes "Per-spec .md + .txt (+ optional .pdf) bundles, rebuilt by CI. Do not edit assets manually."
           fi
-          # Upload the individual .md, .txt sample, and any .pdf/.docx attachments too (not just
+          # Upload the individual .md, .txt sample, and any .pdf attachments too (not just
           # the .zip) - GitHub Release assets always get Content-Disposition: attachment, forcing
           # a real download even for text/PDF files. raw.githubusercontent.com (and Chrome's
           # built-in PDF viewer) render these inline instead, which is why links to them open in
@@ -225,7 +225,7 @@ jobs:
             [ -e "$s" ] || continue
             gh release upload specs-downloads "$s" --repo "${{ github.repository }}" --clobber
           done
-          for a in specs/attachments/*.pdf specs/attachments/*.docx; do
+          for a in specs/attachments/*.pdf; do
             [ -e "$a" ] || continue
             gh release upload specs-downloads "$a" --repo "${{ github.repository }}" --clobber
           done
@@ -289,9 +289,6 @@ jobs:
             DOWNLOADS_MD+="- [Download illustrative sample (.txt)](${RELEASE_BASE}/${DOC_SLUG}-sample.txt)"$'\n'
             if [ -f "specs/attachments/${DOC_SLUG}.pdf" ]; then
               DOWNLOADS_MD+="- [Download spec (.pdf)](${RELEASE_BASE}/${DOC_SLUG}.pdf)"$'\n'
-            fi
-            if [ -f "specs/attachments/${DOC_SLUG}.docx" ]; then
-              DOWNLOADS_MD+="- [Download configuration worksheet (.docx)](${RELEASE_BASE}/${DOC_SLUG}.docx)"$'\n'
             fi
             DOWNLOADS_MD+="- [Download all files (.zip)](${RELEASE_BASE}/${DOC_SLUG}.zip)"$'\n'
             CONTENT_RAW="${CONTENT_RAW}${DOWNLOADS_MD}"
