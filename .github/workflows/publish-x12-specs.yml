@@ -43,6 +43,20 @@ name: Publish X12 specs to Kong Konnect Catalog
 #                   section (see CUSTOM_DOWNLOADS_SLUGS in the publish step) since they carry
 #                   their own hand-authored Downloads section in the source .md instead.
 #
+# Portal Pages/Snippets via GitHub (publish-portal-content job): instead of hand-editing the
+# Konnect Portal Editor UI, the "SPECs" page and the spec-api-card Snippet are version-controlled
+# as ordinary files and auto-published on push, one file = one Kong Page or Snippet (1:1, same
+# spirit as one specs/*.md file = one API Document):
+#   portal/pages/<slug>.md      -> one Konnect Portal Page, keyed by <slug> (filename = Page slug)
+#   portal/snippets/<name>.md   -> one Konnect Portal Snippet, keyed by <name> (filename = Snippet name)
+# Each file's front matter (title/description) plus MDC body is the exact `content` sent to Kong.
+# Lookup-then-create-or-update mirrors the Document pattern above:
+#   Pages:    GET/POST /v3/portals/{portalId}/pages, filter[slug][eq]=<slug>, then PATCH or POST
+#   Snippets: GET/POST /v3/portals/{portalId}/snippets, filter[name][eq]=<name>, then PATCH or POST
+# Currently manages:
+#   portal/pages/apis.md            - the "SPECs" catalog page (slug: apis)
+#   portal/snippets/spec-api-card.md - the custom API card Snippet used by the page's apis-list
+#
 # Option A downloads (public-only): the build-downloads job extracts each spec's illustrative
 # EDI example into specs/samples/<slug>-sample.txt (committed back to main), zips it with the
 # source .md into dist/<slug>.zip, and uploads all zips to one persistent Release
@@ -65,6 +79,9 @@ on:
       - 'specs/**' # Auto-publish on any spec content/attachment change - no manual "Run
                    # workflow" click needed. Safe from self-triggering loops: the
                    # build-downloads job's own commit back to main includes "[skip ci]".
+      - 'portal/**' # Auto-publish Portal Pages/Snippets (see publish-portal-content job) on any
+                    # change under portal/pages/ or portal/snippets/ - replaces manually editing
+                    # these in the Konnect Portal Editor UI.
 
 jobs:
   discover:
@@ -372,3 +389,105 @@ jobs:
             -H "Authorization: Bearer $KONNECT_TOKEN"
 
           echo "Done: $API_NAME"
+
+  publish-portal-content:
+    runs-on: ubuntu-latest
+    env:
+      KONNECT_BASE_URL: https://us.api.konghq.com
+      KONNECT_PORTAL_ID: ${{ secrets.KONNECT_PORTAL_ID }}
+      KONNECT_TOKEN: ${{ secrets.KONNECT_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Publish Portal Pages (portal/pages/*.md)
+        run: |
+          set -e
+          for f in portal/pages/*.md; do
+            [ -e "$f" ] || continue
+            SLUG=$(basename "$f" .md)
+
+            TITLE=$(sed -n 's/^title:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$f" | head -n1)
+
+            if [ -z "$TITLE" ]; then
+              echo "::error file=$f::Missing title in front matter - skipping this page"
+              continue
+            fi
+
+            CONTENT=$(cat "$f" | jq -Rs .)
+
+            echo "Looking up page with slug=$SLUG..."
+            EXISTING_PAGE=$(curl -sS -G "$KONNECT_BASE_URL/v3/portals/$KONNECT_PORTAL_ID/pages" \
+              -H "Authorization: Bearer $KONNECT_TOKEN" \
+              --data-urlencode "filter[slug][eq]=$SLUG")
+            PAGE_ID=$(echo "$EXISTING_PAGE" | jq -r '.data[0].id // empty')
+
+            if [ -n "$PAGE_ID" ]; then
+              echo "Existing page found (id=$PAGE_ID) - updating with PATCH"
+              curl -sS -X PATCH "$KONNECT_BASE_URL/v3/portals/$KONNECT_PORTAL_ID/pages/$PAGE_ID" \
+                -H "Authorization: Bearer $KONNECT_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"content\": $CONTENT
+                }"
+            else
+              echo "No existing page found - creating with POST"
+              curl -sS -X POST "$KONNECT_BASE_URL/v3/portals/$KONNECT_PORTAL_ID/pages" \
+                -H "Authorization: Bearer $KONNECT_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"slug\": \"$SLUG\",
+                  \"title\": \"$TITLE\",
+                  \"status\": \"published\",
+                  \"content\": $CONTENT
+                }"
+            fi
+
+            echo "Done: page $SLUG"
+          done
+
+      - name: Publish Portal Snippets (portal/snippets/*.md)
+        run: |
+          set -e
+          for f in portal/snippets/*.md; do
+            [ -e "$f" ] || continue
+            NAME=$(basename "$f" .md)
+
+            TITLE=$(sed -n 's/^title:[[:space:]]*"\(.*\)"[[:space:]]*$/\1/p' "$f" | head -n1)
+
+            if [ -z "$TITLE" ]; then
+              echo "::error file=$f::Missing title in front matter - skipping this snippet"
+              continue
+            fi
+
+            CONTENT=$(cat "$f" | jq -Rs .)
+
+            echo "Looking up snippet with name=$NAME..."
+            EXISTING_SNIPPET=$(curl -sS -G "$KONNECT_BASE_URL/v3/portals/$KONNECT_PORTAL_ID/snippets" \
+              -H "Authorization: Bearer $KONNECT_TOKEN" \
+              --data-urlencode "filter[name][eq]=$NAME")
+            SNIPPET_ID=$(echo "$EXISTING_SNIPPET" | jq -r '.data[0].id // empty')
+
+            if [ -n "$SNIPPET_ID" ]; then
+              echo "Existing snippet found (id=$SNIPPET_ID) - updating with PATCH"
+              curl -sS -X PATCH "$KONNECT_BASE_URL/v3/portals/$KONNECT_PORTAL_ID/snippets/$SNIPPET_ID" \
+                -H "Authorization: Bearer $KONNECT_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"content\": $CONTENT
+                }"
+            else
+              echo "No existing snippet found - creating with POST"
+              curl -sS -X POST "$KONNECT_BASE_URL/v3/portals/$KONNECT_PORTAL_ID/snippets" \
+                -H "Authorization: Bearer $KONNECT_TOKEN" \
+                -H "Content-Type: application/json" \
+                -d "{
+                  \"name\": \"$NAME\",
+                  \"title\": \"$TITLE\",
+                  \"status\": \"published\",
+                  \"content\": $CONTENT
+                }"
+            fi
+
+            echo "Done: snippet $NAME"
+          done
